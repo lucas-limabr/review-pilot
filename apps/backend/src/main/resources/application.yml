@@ -1,0 +1,50 @@
+server:
+  port: ${BACKEND_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: reviewpilot-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:${POSTGRES_PORT:5432}/${POSTGRES_DB:reviewpilot}}
+    username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:reviewpilot}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:}}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
+springdoc:
+  api-docs:
+    path: /api/v1/openapi
+  swagger-ui:
+    path: /api/v1/swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+reviewpilot:
+  environment: ${APP_ENV:local}
+  security:
+    internal-service-token: ${INTERNAL_SERVICE_TOKEN:}
+    github-webhook-secret: ${GITHUB_WEBHOOK_SECRET:}
+  n8n:
+    internal-webhook-url: ${N8N_INTERNAL_WEBHOOK_URL:http://localhost:5678/webhook/reviewpilot-dispatch}
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.reviewpilot: ${LOG_LEVEL:INFO}
+

@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# Lightweight Maven Wrapper script delegating to local Maven or .mvn wrapper if present
+set -e
+if command -v mvn >/dev/null 2>&1; then
+  exec mvn "$@"
+else
+  echo "Maven (mvn) is not installed on PATH." >&2
+  exit 1
+fi
+
