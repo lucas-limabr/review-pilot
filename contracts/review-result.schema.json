@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reviewpilot.local/contracts/review-result.schema.json",
+  "title": "ReviewPilotAnalyzePullRequestResult",
+  "description": "Structured output contract produced by the n8n AI Agent workflow and validated by the Spring Boot backend.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewExecutionId",
+    "repositoryFullName",
+    "pullRequestNumber",
+    "analyzedHeadSha",
+    "model",
+    "promptVersion",
+    "summary",
+    "findings",
+    "limitations",
+    "usage"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "reviewExecutionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "repositoryFullName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+      "maxLength": 255
+    },
+    "pullRequestNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "analyzedHeadSha": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{40}$"
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "promptVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputTokens", "outputTokens"],
+      "properties": {
+        "inputTokens": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "category",
+        "severity",
+        "title",
+        "description",
+        "filePath",
+        "startLine",
+        "endLine",
+        "evidence",
+        "recommendation",
+        "confidence",
+        "origin",
+        "externalReference"
+      ],
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "category": {
+          "type": "string",
+          "enum": ["BUG", "SECURITY", "PERFORMANCE", "MAINTAINABILITY", "TEST"]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "filePath": {
+          "type": ["string", "null"],
+          "maxLength": 1024
+        },
+        "startLine": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "endLine": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "origin": {
+          "type": "string",
+          "enum": ["AI", "SONARQUBE", "CORRELATED"]
+        },
+        "externalReference": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        }
+      }
+    }
+  }
+}
+
