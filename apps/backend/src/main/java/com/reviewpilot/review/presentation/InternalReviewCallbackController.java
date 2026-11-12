@@ -5,6 +5,8 @@ import com.reviewpilot.review.presentation.ReviewDtos.AgentReviewFailurePayload;
 import com.reviewpilot.review.presentation.ReviewDtos.AgentReviewResultPayload;
 import com.reviewpilot.review.presentation.ReviewDtos.ReviewDetailResponse;
 import com.reviewpilot.shared.config.OpenApiConfig;
+import com.reviewpilot.webhook.application.GitHubWebhookService;
+import com.reviewpilot.webhook.presentation.WebhookDtos.GitHubWebhookResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,14 +20,19 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/internal/v1/reviews")
-@Tag(name = "Internal n8n Callbacks", description = "Authenticated internal endpoints called by the n8n workflow")
+@Tag(name = "Internal n8n Callbacks", description = "Authenticated internal endpoints called by the n8n workflow or internal retry")
 @SecurityRequirement(name = OpenApiConfig.INTERNAL_TOKEN_SCHEME)
 public class InternalReviewCallbackController {
 
     private final ReviewExecutionService reviewExecutionService;
+    private final GitHubWebhookService gitHubWebhookService;
 
-    public InternalReviewCallbackController(ReviewExecutionService reviewExecutionService) {
+    public InternalReviewCallbackController(
+            ReviewExecutionService reviewExecutionService,
+            GitHubWebhookService gitHubWebhookService
+    ) {
         this.reviewExecutionService = reviewExecutionService;
+        this.gitHubWebhookService = gitHubWebhookService;
     }
 
     @PostMapping("/{id}/results")
@@ -45,5 +52,10 @@ public class InternalReviewCallbackController {
     ) {
         return reviewExecutionService.recordAgentFailure(reviewExecutionId, payload);
     }
-}
 
+    @PostMapping("/{id}/dispatch")
+    @Operation(summary = "Retry dispatching a PENDING review execution to n8n in a controlled and idempotent manner")
+    public GitHubWebhookResponse retryPendingDispatch(@PathVariable("id") UUID reviewExecutionId) {
+        return gitHubWebhookService.retryPendingDispatch(reviewExecutionId);
+    }
+}

@@ -21,6 +21,28 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(UnauthorizedOperationException.class)
+    public ProblemDetail handleUnauthorized(UnauthorizedOperationException ex, HttpServletRequest request) {
+        return createProblem(
+                HttpStatus.UNAUTHORIZED,
+                "Unauthorized",
+                ex.getMessage(),
+                "https://reviewpilot.local/problems/unauthorized",
+                request
+        );
+    }
+
+    @ExceptionHandler(ForbiddenOperationException.class)
+    public ProblemDetail handleForbidden(ForbiddenOperationException ex, HttpServletRequest request) {
+        return createProblem(
+                HttpStatus.FORBIDDEN,
+                "Forbidden",
+                ex.getMessage(),
+                "https://reviewpilot.local/problems/forbidden",
+                request
+        );
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ProblemDetail handleNotFound(ResourceNotFoundException ex, HttpServletRequest request) {
         return createProblem(
@@ -54,6 +76,17 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(UpstreamServiceUnavailableException.class)
+    public ProblemDetail handleUpstreamUnavailable(UpstreamServiceUnavailableException ex, HttpServletRequest request) {
+        return createProblem(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Upstream Service Unavailable",
+                ex.getMessage(),
+                "https://reviewpilot.local/problems/service-unavailable",
+                request
+        );
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidationErrors(MethodArgumentNotValidException ex, HttpServletRequest request) {
         ProblemDetail problem = createProblem(
@@ -76,7 +109,7 @@ public class GlobalExceptionHandler {
         return createProblem(
                 HttpStatus.BAD_REQUEST,
                 "Malformed Request",
-                "The request payload or parameters could not be parsed.",
+                ex.getMessage() != null ? ex.getMessage() : "The request payload or parameters could not be parsed.",
                 "https://reviewpilot.local/problems/bad-request",
                 request
         );
@@ -109,4 +142,3 @@ public class GlobalExceptionHandler {
         return problem;
     }
 }
-

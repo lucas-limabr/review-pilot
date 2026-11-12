@@ -1,10 +1,20 @@
 #!/usr/bin/env sh
-# Lightweight Maven Wrapper script delegating to local Maven or .mvn wrapper if present
+# Lightweight Maven Wrapper script using Java 21 LTS when available
 set -e
+
+if [ -z "${JAVA_HOME:-}" ]; then
+  if [ -x "/usr/lib/jvm/java-21-temurin-jdk/bin/javac" ]; then
+    export JAVA_HOME="/usr/lib/jvm/java-21-temurin-jdk"
+    export PATH="${JAVA_HOME}/bin:${PATH}"
+  elif [ -x "/usr/lib/jvm/java-21-openjdk/bin/javac" ]; then
+    export JAVA_HOME="/usr/lib/jvm/java-21-openjdk"
+    export PATH="${JAVA_HOME}/bin:${PATH}"
+  fi
+fi
+
 if command -v mvn >/dev/null 2>&1; then
   exec mvn "$@"
 else
   echo "Maven (mvn) is not installed on PATH." >&2
   exit 1
 fi
-

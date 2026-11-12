@@ -94,6 +94,16 @@ public class ReviewExecution {
         if (this.startedAt == null) {
             this.startedAt = Objects.requireNonNull(now, "now is required");
         }
+        this.failureCode = null;
+        this.failureMessage = null;
+    }
+
+    public void recordDispatchFailure(String sanitizedMessage, Instant now) {
+        if (this.status != ReviewExecutionStatus.PENDING) {
+            throw new IllegalStateException("Can only record dispatch failure when execution is PENDING.");
+        }
+        this.failureCode = "N8N_DISPATCH_FAILED";
+        this.failureMessage = Objects.requireNonNull(sanitizedMessage, "sanitizedMessage is required");
     }
 
     public void markCompleted(
@@ -204,4 +214,3 @@ public class ReviewExecution {
         return createdAt;
     }
 }
-
