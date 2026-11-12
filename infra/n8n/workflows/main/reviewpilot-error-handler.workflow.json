@@ -1,0 +1,88 @@
+{
+  "name": "ReviewPilot - Global Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e90d1a20-4c11-4b22-9100-000000000001",
+      "name": "On Workflow Error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ],
+      "notesInFlow": true,
+      "notes": "Captures uncaught workflow errors or execution timeouts from ReviewPilot workflows."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err-stage",
+              "name": "stage",
+              "value": "N8N_UNCAUGHT_WORKFLOW_ERROR",
+              "type": "string"
+            },
+            {
+              "id": "err-code",
+              "name": "errorCode",
+              "value": "WORKFLOW_TIMEOUT_OR_CRASH",
+              "type": "string"
+            },
+            {
+              "id": "err-msg",
+              "name": "message",
+              "value": "=Falha inesperada ou timeout no workflow '{{ $json.workflow?.name ?? 'ReviewPilot' }}' (node: {{ $json.execution?.lastNodeExecuted ?? 'unknown' }}).",
+              "type": "string"
+            },
+            {
+              "id": "err-retryable",
+              "name": "retryable",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e90d1a20-4c11-4b22-9100-000000000002",
+      "name": "Format Sanitized Error Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        300
+      ],
+      "notesInFlow": true,
+      "notes": "Formats sanitized error metadata without leaking credentials or full stack traces."
+    }
+  ],
+  "connections": {
+    "On Workflow Error": {
+      "main": [
+        [
+          {
+            "node": "Format Sanitized Error Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveDataErrorExecution": "all"
+  },
+  "versionId": "00000000-0000-4000-8000-000000000005",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
+

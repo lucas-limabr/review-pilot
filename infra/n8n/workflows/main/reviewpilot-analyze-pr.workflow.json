@@ -1,0 +1,609 @@
+{
+  "name": "ReviewPilot - Analyze Pull Request",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ReviewPilot - Analyze Pull Request (Fase 4 Skeleton)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **AI Agent Slot (`Stage Placeholder - Review Agent`):** na Fase 7 será substituído pelo nó `AI Agent (Tools Agent)` conectado ao `Google Gemini Chat Model` e ferramentas MCP somente leitura.\n- **Retorno ao Backend (`Submit Review Result` / `Report Execution Failure`):** envia resultado ou falha controlada aos endpoints `/api/internal/v1/reviews/{id}/results` e `/failure`.",
+        "height": 240,
+        "width": 640
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000001",
+      "name": "Architecture Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        180,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reviewpilot-dispatch",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000002",
+      "name": "Receive Review Dispatch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        360
+      ],
+      "webhookId": "reviewpilot-dispatch",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CREDENTIAL_ID_INTERNAL_SERVICE_AUTH",
+          "name": "ReviewPilot Internal Service Auth"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Receives internal dispatch from Spring Boot backend authenticated with X-Internal-Service-Token."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-review-execution-id",
+              "leftValue": "={{ $json.body.reviewExecutionId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-repo-full-name",
+              "leftValue": "={{ $json.body.repositoryFullName }}",
+              "rightValue": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "cond-pr-number",
+              "leftValue": "={{ Number($json.body.pullRequestNumber) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "cond-head-sha",
+              "leftValue": "={{ $json.body.expectedHeadSha }}",
+              "rightValue": "^[0-9a-fA-F]{40}$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "cond-base-branch",
+              "leftValue": "={{ $json.body.baseBranch }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000003",
+      "name": "Validate Dispatch Payload",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        360
+      ],
+      "notesInFlow": true,
+      "notes": "Validates required fields from contracts/review-request.schema.json."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"ACCEPTED\",\n  \"reviewExecutionId\": \"{{ $json.body.reviewExecutionId }}\"\n}",
+        "options": {
+          "responseCode": 202
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000004",
+      "name": "Acknowledge Dispatch Accepted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        260
+      ],
+      "notesInFlow": true,
+      "notes": "Returns 202 Accepted to backend immediately after payload validation."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-event-id",
+              "name": "eventId",
+              "value": "={{ $('Receive Review Dispatch').item.json.body.eventId }}",
+              "type": "string"
+            },
+            {
+              "id": "field-execution-id",
+              "name": "reviewExecutionId",
+              "value": "={{ $('Receive Review Dispatch').item.json.body.reviewExecutionId }}",
+              "type": "string"
+            },
+            {
+              "id": "field-repo-name",
+              "name": "repositoryFullName",
+              "value": "={{ $('Receive Review Dispatch').item.json.body.repositoryFullName }}",
+              "type": "string"
+            },
+            {
+              "id": "field-pr-number",
+              "name": "pullRequestNumber",
+              "value": "={{ Number($('Receive Review Dispatch').item.json.body.pullRequestNumber) }}",
+              "type": "number"
+            },
+            {
+              "id": "field-expected-sha",
+              "name": "expectedHeadSha",
+              "value": "={{ $('Receive Review Dispatch').item.json.body.expectedHeadSha }}",
+              "type": "string"
+            },
+            {
+              "id": "field-base-branch",
+              "name": "baseBranch",
+              "value": "={{ $('Receive Review Dispatch').item.json.body.baseBranch }}",
+              "type": "string"
+            },
+            {
+              "id": "field-sonar-key",
+              "name": "sonarProjectKey",
+              "value": "={{ $('Receive Review Dispatch').item.json.body.sonarProjectKey ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "field-schema-version",
+              "name": "schemaVersion",
+              "value": "1.0",
+              "type": "string"
+            },
+            {
+              "id": "field-prompt-version",
+              "name": "promptVersion",
+              "value": "1.0.0",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000005",
+      "name": "Prepare Agent Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        260
+      ],
+      "notesInFlow": true,
+      "notes": "Normalizes traceability fields before invoking the Review Agent."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "agent-analyzed-sha",
+              "name": "analyzedHeadSha",
+              "value": "={{ $json.expectedHeadSha }}",
+              "type": "string"
+            },
+            {
+              "id": "agent-model",
+              "name": "model",
+              "value": "n8n-stage4-skeleton",
+              "type": "string"
+            },
+            {
+              "id": "agent-summary",
+              "name": "summary",
+              "value": "Esqueleto do workflow n8n validado com sucesso (Fase 4). O nó AI Agent (Tools Agent), Google Gemini Chat Model e ferramentas MCP serão conectados nas Fases 5 a 7.",
+              "type": "string"
+            },
+            {
+              "id": "agent-findings",
+              "name": "findings",
+              "value": "=[]",
+              "type": "array"
+            },
+            {
+              "id": "agent-limitations",
+              "name": "limitations",
+              "value": "=[\"Esqueleto da Fase 4: integracao real com Gemini e servidores MCP sera habilitada nas Fases 5 a 7.\"]",
+              "type": "array"
+            },
+            {
+              "id": "agent-usage",
+              "name": "usage",
+              "value": "={\"inputTokens\": null, \"outputTokens\": null}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000006",
+      "name": "Stage Placeholder - Review Agent (Phase 7)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1220,
+        260
+      ],
+      "onError": "continueErrorOutput",
+      "notesInFlow": true,
+      "notes": "Replaced by @n8n/n8n-nodes-langchain.agent (Tools Agent) in Phase 7."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "norm-schema-version",
+              "name": "schemaVersion",
+              "value": "={{ $('Prepare Agent Context').item.json.schemaVersion }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-exec-id",
+              "name": "reviewExecutionId",
+              "value": "={{ $('Prepare Agent Context').item.json.reviewExecutionId }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-repo",
+              "name": "repositoryFullName",
+              "value": "={{ $('Prepare Agent Context').item.json.repositoryFullName }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-pr",
+              "name": "pullRequestNumber",
+              "value": "={{ $('Prepare Agent Context').item.json.pullRequestNumber }}",
+              "type": "number"
+            },
+            {
+              "id": "norm-sha",
+              "name": "analyzedHeadSha",
+              "value": "={{ $json.analyzedHeadSha }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-model",
+              "name": "model",
+              "value": "={{ $json.model }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-prompt-version",
+              "name": "promptVersion",
+              "value": "={{ $('Prepare Agent Context').item.json.promptVersion }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-summary",
+              "name": "summary",
+              "value": "={{ $json.summary }}",
+              "type": "string"
+            },
+            {
+              "id": "norm-findings",
+              "name": "findings",
+              "value": "={{ $json.findings }}",
+              "type": "array"
+            },
+            {
+              "id": "norm-limitations",
+              "name": "limitations",
+              "value": "={{ $json.limitations }}",
+              "type": "array"
+            },
+            {
+              "id": "norm-usage",
+              "name": "usage",
+              "value": "={{ $json.usage }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000007",
+      "name": "Validate and Normalize Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1480,
+        240
+      ],
+      "notesInFlow": true,
+      "notes": "Ensures payload matches contracts/review-result.schema.json."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8080/api/internal/v1/reviews/{{ $json.reviewExecutionId }}/results",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000008",
+      "name": "Submit Review Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        240
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CREDENTIAL_ID_INTERNAL_SERVICE_AUTH",
+          "name": "ReviewPilot Internal Service Auth"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Submits structured result to Backend internal callback endpoint."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fail-stage",
+              "name": "stage",
+              "value": "AI_AGENT_EXECUTION",
+              "type": "string"
+            },
+            {
+              "id": "fail-code",
+              "name": "errorCode",
+              "value": "MODEL_OR_WORKFLOW_FAILURE",
+              "type": "string"
+            },
+            {
+              "id": "fail-message",
+              "name": "message",
+              "value": "Falha controlada durante a execucao do workflow de analise no n8n.",
+              "type": "string"
+            },
+            {
+              "id": "fail-retryable",
+              "name": "retryable",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000009",
+      "name": "Build Failure Payload",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1480,
+        440
+      ],
+      "notesInFlow": true,
+      "notes": "Builds sanitized failure payload without secrets or raw stack traces."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8080/api/internal/v1/reviews/{{ $('Prepare Agent Context').item.json.reviewExecutionId }}/failure",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000010",
+      "name": "Report Execution Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        440
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CREDENTIAL_ID_INTERNAL_SERVICE_AUTH",
+          "name": "ReviewPilot Internal Service Auth"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Notifies Backend when workflow or AI Agent execution fails."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"INVALID_PAYLOAD\",\n  \"message\": \"Missing or invalid required fields in review dispatch payload.\"\n}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000011",
+      "name": "Reject Invalid Dispatch Payload",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        700,
+        500
+      ],
+      "notesInFlow": true,
+      "notes": "Returns HTTP 422 when dispatch payload violates contracts/review-request.schema.json."
+    }
+  ],
+  "connections": {
+    "Receive Review Dispatch": {
+      "main": [
+        [
+          {
+            "node": "Validate Dispatch Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Dispatch Payload": {
+      "main": [
+        [
+          {
+            "node": "Acknowledge Dispatch Accepted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Invalid Dispatch Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acknowledge Dispatch Accepted": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Context": {
+      "main": [
+        [
+          {
+            "node": "Stage Placeholder - Review Agent (Phase 7)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage Placeholder - Review Agent (Phase 7)": {
+      "main": [
+        [
+          {
+            "node": "Validate and Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Normalize Result": {
+      "main": [
+        [
+          {
+            "node": "Submit Review Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit Review Result": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Build Failure Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Payload": {
+      "main": [
+        [
+          {
+            "node": "Report Execution Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 180
+  },
+  "versionId": "00000000-0000-4000-8000-000000000004",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
+
