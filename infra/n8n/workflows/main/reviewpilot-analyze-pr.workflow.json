@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## ReviewPilot - Analyze Pull Request (Fase 4 Skeleton)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **AI Agent Slot (`Stage Placeholder - Review Agent`):** na Fase 7 será substituído pelo nó `AI Agent (Tools Agent)` conectado ao `Google Gemini Chat Model` e ferramentas MCP somente leitura.\n- **Retorno ao Backend (`Submit Review Result` / `Report Execution Failure`):** envia resultado ou falha controlada aos endpoints `/api/internal/v1/reviews/{id}/results` e `/failure`.",
-        "height": 240,
-        "width": 640
+        "content": "## ReviewPilot - Analyze Pull Request (Fase 5 — Gemini Chat Model)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **Modelo LLM (`Google Gemini Chat Model`):** configurado com `models/gemini-3.5-flash-lite` (`temperature: 0.1`, `maxOutputTokens: 4096`) e credencial criptografada `ReviewPilot Google Gemini API` (`googlePalmApi`).\n- **AI Agent Slot (`Stage Placeholder - Review Agent (Phase 7)`):** na Fase 7 será substituído pelo nó `AI Agent (Tools Agent)` conectado à saída `ai_languageModel` do `Google Gemini Chat Model` e às ferramentas MCP somente leitura.\n- **Retorno ao Backend (`Submit Review Result` / `Report Execution Failure`):** envia resultado ou falha controlada aos endpoints `/api/internal/v1/reviews/{id}/results` e `/failure`.",
+        "height": 260,
+        "width": 680
       },
       "id": "b71d9d31-6e28-4f6a-9831-000000000001",
       "name": "Architecture Note",
@@ -13,7 +13,7 @@
       "typeVersion": 1,
       "position": [
         180,
-        60
+        40
       ]
     },
     {
@@ -224,13 +224,13 @@
             {
               "id": "agent-model",
               "name": "model",
-              "value": "n8n-stage4-skeleton",
+              "value": "models/gemini-3.5-flash-lite",
               "type": "string"
             },
             {
               "id": "agent-summary",
               "name": "summary",
-              "value": "Esqueleto do workflow n8n validado com sucesso (Fase 4). O nó AI Agent (Tools Agent), Google Gemini Chat Model e ferramentas MCP serão conectados nas Fases 5 a 7.",
+              "value": "Esqueleto do workflow n8n com Google Gemini Chat Model pré-configurado (Fase 5). O nó AI Agent (Tools Agent) e as ferramentas MCP somente leitura serão conectados nas Fases 6 e 7.",
               "type": "string"
             },
             {
@@ -242,7 +242,7 @@
             {
               "id": "agent-limitations",
               "name": "limitations",
-              "value": "=[\"Esqueleto da Fase 4: integracao real com Gemini e servidores MCP sera habilitada nas Fases 5 a 7.\"]",
+              "value": "=[\"Fase 5: no Google Gemini Chat Model pre-configurado; conexao completa com AI Agent (Tools Agent) e servidores MCP sera habilitada nas Fases 6 e 7.\"]",
               "type": "array"
             },
             {
@@ -266,6 +266,31 @@
       "onError": "continueErrorOutput",
       "notesInFlow": true,
       "notes": "Replaced by @n8n/n8n-nodes-langchain.agent (Tools Agent) in Phase 7."
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "maxOutputTokens": 4096,
+          "temperature": 0.1
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000012",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        480
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "CREDENTIAL_ID_GOOGLE_GEMINI",
+          "name": "ReviewPilot Google Gemini API"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Configured in Phase 5 (models/gemini-3.5-flash-lite, temperature=0.1, maxOutputTokens=4096). Connects to AI Agent Chat Model input in Phase 7."
     },
     {
       "parameters": {
@@ -600,10 +625,9 @@
     "saveManualExecutions": true,
     "executionTimeout": 180
   },
-  "versionId": "00000000-0000-4000-8000-000000000004",
+  "versionId": "00000000-0000-4000-8000-000000000005",
   "meta": {
     "templateCredsSetupCompleted": false
   },
   "tags": []
 }
-
