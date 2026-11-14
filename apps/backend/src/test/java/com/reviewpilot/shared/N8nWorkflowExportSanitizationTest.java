@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -15,7 +17,10 @@ import org.junit.jupiter.api.Test;
 class N8nWorkflowExportSanitizationTest {
 
     private static final Pattern FORBIDDEN_SECRET_PATTERN =
-            Pattern.compile("(?i)(gh[pousr]_[A-Za-z0-9_]+|AIza[0-9A-Za-z\\-_]{20,}|CHANGE_ME_LOCALLY)");
+            Pattern.compile("(?i)(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AIza[0-9A-Za-z\\-_]{20,}|CHANGE_ME_LOCALLY)");
+
+    private static final Pattern FORBIDDEN_WRITE_TOOL_PATTERN =
+            Pattern.compile("(?i)(create_pull_request|merge_pull_request|create_or_update_file|push_files|create_branch|add_issue_comment|create_pull_request_review|update_pull_request)");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -26,6 +31,7 @@ class N8nWorkflowExportSanitizationTest {
 
         String rawContent = Files.readString(workflowPath);
         assertThat(FORBIDDEN_SECRET_PATTERN.matcher(rawContent).find()).isFalse();
+        assertThat(FORBIDDEN_WRITE_TOOL_PATTERN.matcher(rawContent).find()).isFalse();
 
         JsonNode root = objectMapper.readTree(rawContent);
         assertThat(root.path("name").asText()).isEqualTo("ReviewPilot - Analyze Pull Request");
@@ -51,6 +57,9 @@ class N8nWorkflowExportSanitizationTest {
                 "Acknowledge Dispatch Accepted",
                 "Prepare Agent Context",
                 "Google Gemini Chat Model",
+                "github_pr_read_tool",
+                "github_get_file_contents_tool",
+                "github_list_commits_tool",
                 "Validate and Normalize Result",
                 "Submit Review Result",
                 "Build Failure Payload",
@@ -71,6 +80,61 @@ class N8nWorkflowExportSanitizationTest {
         assertThat(geminiNode.path("parameters").path("options").path("maxOutputTokens").asInt()).isEqualTo(4096);
         assertThat(geminiNode.path("credentials").path("googlePalmApi").path("id").asText())
                 .isEqualTo("CREDENTIAL_ID_GOOGLE_GEMINI");
+    }
+
+    @Test
+    void githubMcpSubworkflowsAndDiagnosticShouldBeValidSanitizedAndReadOnly() throws Exception {
+        Path repoRoot = resolveRepoRoot();
+        Map<String, String> expectedToolSubworkflows = Map.of(
+                "infra/n8n/workflows/tools/github-mcp-pull-request-read.workflow.json", "pull_request_read",
+                "infra/n8n/workflows/tools/github-mcp-get-file-contents.workflow.json", "get_file_contents",
+                "infra/n8n/workflows/tools/github-mcp-list-commits.workflow.json", "list_commits"
+        );
+
+        for (Map.Entry<String, String> entry : expectedToolSubworkflows.entrySet()) {
+            Path subworkflowPath = repoRoot.resolve(entry.getKey());
+            assertThat(subworkflowPath).exists();
+
+            String rawContent = Files.readString(subworkflowPath);
+            assertThat(FORBIDDEN_SECRET_PATTERN.matcher(rawContent).find()).isFalse();
+            assertThat(FORBIDDEN_WRITE_TOOL_PATTERN.matcher(rawContent).find()).isFalse();
+
+            JsonNode root = objectMapper.readTree(rawContent);
+            assertThat(root.path("pinData").isObject()).isTrue();
+            assertThat(root.path("pinData").isEmpty()).isTrue();
+
+            JsonNode mcpClientNode = null;
+            JsonNode triggerNode = null;
+            for (JsonNode node : root.withArray("nodes")) {
+                String type = node.path("type").asText();
+                if ("@n8n/n8n-nodes-langchain.mcpClient".equals(type)) {
+                    mcpClientNode = node;
+                } else if ("n8n-nodes-base.executeWorkflowTrigger".equals(type)) {
+                    triggerNode = node;
+                }
+            }
+
+            assertThat(triggerNode).isNotNull();
+            assertThat(mcpClientNode).isNotNull();
+            assertThat(mcpClientNode.path("parameters").path("serverTransport").asText())
+                    .isEqualTo("httpStreamable");
+            assertThat(mcpClientNode.path("parameters").path("endpointUrl").asText())
+                    .isEqualTo("https://api.githubcopilot.com/mcp/");
+            assertThat(mcpClientNode.path("parameters").path("authentication").asText())
+                    .isEqualTo("multipleHeadersAuth");
+            assertThat(mcpClientNode.path("parameters").path("tool").path("value").asText())
+                    .isEqualTo(entry.getValue());
+            assertThat(mcpClientNode.path("credentials").path("httpMultipleHeadersAuth").path("id").asText())
+                    .isEqualTo("CREDENTIAL_ID_GITHUB_MCP_HEADERS");
+        }
+
+        Path diagnosticPath = repoRoot.resolve("infra/n8n/workflows/main/reviewpilot-github-mcp-diagnostic.workflow.json");
+        assertThat(diagnosticPath).exists();
+        String diagnosticContent = Files.readString(diagnosticPath);
+        assertThat(FORBIDDEN_SECRET_PATTERN.matcher(diagnosticContent).find()).isFalse();
+        JsonNode diagnosticRoot = objectMapper.readTree(diagnosticContent);
+        assertThat(diagnosticRoot.path("name").asText()).isEqualTo("ReviewPilot - GitHub MCP Diagnostic (Phase 6)");
+        assertThat(diagnosticRoot.path("pinData").isEmpty()).isTrue();
     }
 
     @Test
@@ -140,16 +204,18 @@ class N8nWorkflowExportSanitizationTest {
         Path repoRoot = resolveRepoRoot();
         String envExample = Files.readString(repoRoot.resolve(".env.example"));
         assertThat(envExample).doesNotContainIgnoringCase("GEMINI_API_KEY");
-        assertThat(envExample).doesNotContainIgnoringCase("gemini-2.5-flash");
+        assertThat(envExample).doesNotContainIgnoringCase("gemini-3.5-flash-lite");
 
+        List<String> forbiddenInJava = List.of("models/gemini-3.5-flash-lite", "GEMINI_API_KEY");
         Path mainSrc = repoRoot.resolve("apps/backend/src/main");
         try (Stream<Path> paths = Files.walk(mainSrc)) {
             for (Path file : paths.filter(Files::isRegularFile).toList()) {
                 String content = Files.readString(file);
-                assertThat(content)
-                        .as("File %s must not hardcode Gemini model ID or API key", file.getFileName())
-                        .doesNotContain("models/gemini-3.5-flash-lite")
-                        .doesNotContain("GEMINI_API_KEY");
+                for (String token : forbiddenInJava) {
+                    assertThat(content)
+                            .as("File %s must not hardcode %s", file.getFileName(), token)
+                            .doesNotContain(token);
+                }
             }
         }
     }

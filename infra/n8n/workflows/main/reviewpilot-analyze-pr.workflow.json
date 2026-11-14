@@ -3,9 +3,9 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## ReviewPilot - Analyze Pull Request (Fase 5 — Gemini Chat Model)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **Modelo LLM (`Google Gemini Chat Model`):** configurado com `models/gemini-3.5-flash-lite` (`temperature: 0.1`, `maxOutputTokens: 4096`) e credencial criptografada `ReviewPilot Google Gemini API` (`googlePalmApi`).\n- **AI Agent Slot (`Stage Placeholder - Review Agent (Phase 7)`):** na Fase 7 será substituído pelo nó `AI Agent (Tools Agent)` conectado à saída `ai_languageModel` do `Google Gemini Chat Model` e às ferramentas MCP somente leitura.\n- **Retorno ao Backend (`Submit Review Result` / `Report Execution Failure`):** envia resultado ou falha controlada aos endpoints `/api/internal/v1/reviews/{id}/results` e `/failure`.",
-        "height": 260,
-        "width": 680
+        "content": "## ReviewPilot - Analyze Pull Request (Fase 6 — GitHub MCP Read-Only)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **Modelo LLM (`Google Gemini Chat Model`):** configurado com `models/gemini-3.5-flash-lite` (`temperature: 0.1`, `maxOutputTokens: 4096`) e credencial `ReviewPilot Google Gemini API`.\n- **Ferramentas GitHub MCP Read-Only (`Call n8n Workflow Tool`):** `github_pr_read_tool`, `github_get_file_contents_tool` e `github_list_commits_tool` encapsulam chamadas `HTTP Streamable` a `https://api.githubcopilot.com/mcp/` sem expor nenhuma ferramenta de escrita.\n- **AI Agent Slot (`Stage Placeholder - Review Agent (Phase 7)`):** na Fase 7 será substituído pelo nó `AI Agent (Tools Agent)` conectado ao `Google Gemini Chat Model` e às ferramentas MCP.\n- **Retorno ao Backend (`Submit Review Result` / `Report Execution Failure`):** envia resultado ou falha controlada aos endpoints `/api/internal/v1/reviews/{id}/results` e `/failure`.",
+        "height": 280,
+        "width": 720
       },
       "id": "b71d9d31-6e28-4f6a-9831-000000000001",
       "name": "Architecture Note",
@@ -13,7 +13,7 @@
       "typeVersion": 1,
       "position": [
         180,
-        40
+        20
       ]
     },
     {
@@ -230,7 +230,7 @@
             {
               "id": "agent-summary",
               "name": "summary",
-              "value": "Esqueleto do workflow n8n com Google Gemini Chat Model pré-configurado (Fase 5). O nó AI Agent (Tools Agent) e as ferramentas MCP somente leitura serão conectados nas Fases 6 e 7.",
+              "value": "Esqueleto do workflow n8n com Google Gemini Chat Model e ferramentas GitHub MCP read-only pré-configuradas (Fase 6). O nó AI Agent (Tools Agent) e o SonarQube MCP serão conectados na Fase 7.",
               "type": "string"
             },
             {
@@ -242,7 +242,7 @@
             {
               "id": "agent-limitations",
               "name": "limitations",
-              "value": "=[\"Fase 5: no Google Gemini Chat Model pre-configurado; conexao completa com AI Agent (Tools Agent) e servidores MCP sera habilitada nas Fases 6 e 7.\"]",
+              "value": "=[\"Fase 6: subworkflows e ferramentas GitHub MCP somente leitura configurados; conexao completa com AI Agent (Tools Agent) e SonarQube MCP sera habilitada na Fase 7.\"]",
               "type": "array"
             },
             {
@@ -280,8 +280,8 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
       "position": [
-        1220,
-        480
+        1040,
+        520
       ],
       "credentials": {
         "googlePalmApi": {
@@ -291,6 +291,216 @@
       },
       "notesInFlow": true,
       "notes": "Configured in Phase 5 (models/gemini-3.5-flash-lite, temperature=0.1, maxOutputTokens=4096). Connects to AI Agent Chat Model input in Phase 7."
+    },
+    {
+      "parameters": {
+        "description": "Reads Pull Request metadata, changed files, unified diff, or PR commits in read-only mode from GitHub MCP Server. Allowed method values: 'get' (PR metadata), 'get_files' (modified files), 'get_diff' (unified diff), or 'get_commits' (PR commits).",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "SUBWORKFLOW_ID_GITHUB_PR_READ",
+          "mode": "list",
+          "cachedResultName": "ReviewPilot Tool - GitHub PR Read"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "owner": "={{ $fromAI('owner', 'Repository owner or organization login', 'string') }}",
+            "repo": "={{ $fromAI('repo', 'Repository name without owner', 'string') }}",
+            "pullNumber": "={{ $fromAI('pullNumber', 'Pull Request number', 'number') }}",
+            "method": "={{ $fromAI('method', 'Read operation to execute: get, get_files, get_diff, or get_commits', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "repo",
+              "displayName": "repo",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "pullNumber",
+              "displayName": "pullNumber",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "method",
+              "displayName": "method",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000013",
+      "name": "github_pr_read_tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1220,
+        520
+      ],
+      "notesInFlow": true,
+      "notes": "Read-only Call n8n Workflow Tool wrapping ReviewPilot Tool - GitHub PR Read (pull_request_read)."
+    },
+    {
+      "parameters": {
+        "description": "Reads the contents of a file or directory from the GitHub repository at a specific commit SHA or branch ref in read-only mode via GitHub MCP Server (get_file_contents).",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "SUBWORKFLOW_ID_GITHUB_GET_FILE_CONTENTS",
+          "mode": "list",
+          "cachedResultName": "ReviewPilot Tool - GitHub Get File Contents"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "owner": "={{ $fromAI('owner', 'Repository owner or organization login', 'string') }}",
+            "repo": "={{ $fromAI('repo', 'Repository name without owner', 'string') }}",
+            "path": "={{ $fromAI('path', 'Relative path of the file or directory in the repository', 'string') }}",
+            "ref": "={{ $fromAI('ref', 'Commit SHA or branch reference to read from', 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "repo",
+              "displayName": "repo",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "path",
+              "displayName": "path",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "ref",
+              "displayName": "ref",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000014",
+      "name": "github_get_file_contents_tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        520
+      ],
+      "notesInFlow": true,
+      "notes": "Read-only Call n8n Workflow Tool wrapping ReviewPilot Tool - GitHub Get File Contents (get_file_contents)."
+    },
+    {
+      "parameters": {
+        "description": "Lists commits for a given branch or commit SHA in the GitHub repository in read-only mode via GitHub MCP Server (list_commits).",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "SUBWORKFLOW_ID_GITHUB_LIST_COMMITS",
+          "mode": "list",
+          "cachedResultName": "ReviewPilot Tool - GitHub List Commits"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "owner": "={{ $fromAI('owner', 'Repository owner or organization login', 'string') }}",
+            "repo": "={{ $fromAI('repo', 'Repository name without owner', 'string') }}",
+            "sha": "={{ $fromAI('sha', 'Branch name or commit SHA', 'string') }}",
+            "perPage": "={{ $fromAI('perPage', 'Maximum number of commits to return (1 to 50)', 'number') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "repo",
+              "displayName": "repo",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "sha",
+              "displayName": "sha",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "perPage",
+              "displayName": "perPage",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000015",
+      "name": "github_list_commits_tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1580,
+        520
+      ],
+      "notesInFlow": true,
+      "notes": "Read-only Call n8n Workflow Tool wrapping ReviewPilot Tool - GitHub List Commits (list_commits)."
     },
     {
       "parameters": {
@@ -373,7 +583,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1480,
+        1580,
         240
       ],
       "notesInFlow": true,
@@ -397,7 +607,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1740,
+        1840,
         240
       ],
       "retryOnFail": true,
@@ -452,8 +662,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1480,
-        440
+        1580,
+        400
       ],
       "notesInFlow": true,
       "notes": "Builds sanitized failure payload without secrets or raw stack traces."
@@ -476,8 +686,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1740,
-        440
+        1840,
+        400
       ],
       "retryOnFail": true,
       "maxTries": 2,
@@ -625,7 +835,7 @@
     "saveManualExecutions": true,
     "executionTimeout": 180
   },
-  "versionId": "00000000-0000-4000-8000-000000000005",
+  "versionId": "00000000-0000-4000-8000-000000000006",
   "meta": {
     "templateCredsSetupCompleted": false
   },
