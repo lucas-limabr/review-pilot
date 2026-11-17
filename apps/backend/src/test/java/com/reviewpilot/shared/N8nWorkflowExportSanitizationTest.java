@@ -17,19 +17,23 @@ import org.junit.jupiter.api.Test;
 class N8nWorkflowExportSanitizationTest {
 
     private static final Pattern FORBIDDEN_SECRET_PATTERN =
-            Pattern.compile("(?i)(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AIza[0-9A-Za-z\\-_]{20,}|CHANGE_ME_LOCALLY)");
+            Pattern.compile("(?i)(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|AIza[0-9A-Za-z\\-_]{20,}|squ_[A-Za-z0-9_]+|CHANGE_ME_LOCALLY)");
 
     private static final Pattern FORBIDDEN_WRITE_TOOL_PATTERN =
-            Pattern.compile("(?i)(create_pull_request|merge_pull_request|create_or_update_file|push_files|create_branch|add_issue_comment|create_pull_request_review|update_pull_request)");
+            Pattern.compile("(?i)(create_pull_request|merge_pull_request|create_or_update_file|push_files|create_branch|add_issue_comment|create_pull_request_review|update_pull_request|change_sonar_issue_status|analyze_code_snippet)");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void mainAnalyzePrWorkflowShouldBeValidSanitizedAndContainRequiredNodes() throws Exception {
-        Path workflowPath = resolveRepoRoot().resolve("infra/n8n/workflows/main/reviewpilot-analyze-pr.workflow.json");
+    void mainAnalyzePrWorkflowShouldBeValidSanitizedAndContainReviewAgentAndReadOnlyTools() throws Exception {
+        Path repoRoot = resolveRepoRoot();
+        Path workflowPath = repoRoot.resolve("infra/n8n/workflows/main/reviewpilot-analyze-pr.workflow.json");
+        Path promptPath = repoRoot.resolve("infra/n8n/prompts/review_agent.md");
         assertThat(workflowPath).exists();
+        assertThat(promptPath).exists();
 
         String rawContent = Files.readString(workflowPath);
+        String expectedSystemPrompt = Files.readString(promptPath);
         assertThat(FORBIDDEN_SECRET_PATTERN.matcher(rawContent).find()).isFalse();
         assertThat(FORBIDDEN_WRITE_TOOL_PATTERN.matcher(rawContent).find()).isFalse();
 
@@ -41,6 +45,7 @@ class N8nWorkflowExportSanitizationTest {
         Set<String> nodeNames = new HashSet<>();
         JsonNode webhookNode = null;
         JsonNode geminiNode = null;
+        JsonNode reviewAgentNode = null;
         for (JsonNode node : root.withArray("nodes")) {
             String name = node.path("name").asText();
             nodeNames.add(name);
@@ -48,6 +53,8 @@ class N8nWorkflowExportSanitizationTest {
                 webhookNode = node;
             } else if ("Google Gemini Chat Model".equals(name)) {
                 geminiNode = node;
+            } else if ("Review Agent".equals(name)) {
+                reviewAgentNode = node;
             }
         }
 
@@ -56,10 +63,14 @@ class N8nWorkflowExportSanitizationTest {
                 "Validate Dispatch Payload",
                 "Acknowledge Dispatch Accepted",
                 "Prepare Agent Context",
+                "Review Agent",
                 "Google Gemini Chat Model",
                 "github_pr_read_tool",
                 "github_get_file_contents_tool",
                 "github_list_commits_tool",
+                "sonarqube_search_issues_tool",
+                "sonarqube_quality_gate_tool",
+                "sonarqube_show_rule_tool",
                 "Validate and Normalize Result",
                 "Submit Review Result",
                 "Build Failure Payload",
@@ -80,6 +91,30 @@ class N8nWorkflowExportSanitizationTest {
         assertThat(geminiNode.path("parameters").path("options").path("maxOutputTokens").asInt()).isEqualTo(4096);
         assertThat(geminiNode.path("credentials").path("googlePalmApi").path("id").asText())
                 .isEqualTo("CREDENTIAL_ID_GOOGLE_GEMINI");
+
+        assertThat(reviewAgentNode).isNotNull();
+        assertThat(reviewAgentNode.path("type").asText()).isEqualTo("@n8n/n8n-nodes-langchain.agent");
+        assertThat(reviewAgentNode.path("parameters").path("options").path("maxIterations").asInt()).isEqualTo(10);
+        assertThat(reviewAgentNode.path("parameters").path("options").path("systemMessage").asText())
+                .isEqualTo(expectedSystemPrompt);
+
+        JsonNode connections = root.path("connections");
+        assertThat(connections.path("Google Gemini Chat Model").path("ai_languageModel").path(0).path(0).path("node").asText())
+                .isEqualTo("Review Agent");
+
+        List<String> expectedTools = List.of(
+                "github_pr_read_tool",
+                "github_get_file_contents_tool",
+                "github_list_commits_tool",
+                "sonarqube_search_issues_tool",
+                "sonarqube_quality_gate_tool",
+                "sonarqube_show_rule_tool"
+        );
+        for (String toolNodeName : expectedTools) {
+            assertThat(connections.path(toolNodeName).path("ai_tool").path(0).path(0).path("node").asText())
+                    .as("Tool %s must connect to Review Agent via ai_tool", toolNodeName)
+                    .isEqualTo("Review Agent");
+        }
     }
 
     @Test
@@ -134,6 +169,62 @@ class N8nWorkflowExportSanitizationTest {
         assertThat(FORBIDDEN_SECRET_PATTERN.matcher(diagnosticContent).find()).isFalse();
         JsonNode diagnosticRoot = objectMapper.readTree(diagnosticContent);
         assertThat(diagnosticRoot.path("name").asText()).isEqualTo("ReviewPilot - GitHub MCP Diagnostic (Phase 6)");
+        assertThat(diagnosticRoot.path("pinData").isEmpty()).isTrue();
+    }
+
+    @Test
+    void sonarqubeMcpSubworkflowsAndDiagnosticShouldBeValidSanitizedReadOnlyAndResilient() throws Exception {
+        Path repoRoot = resolveRepoRoot();
+        Map<String, String> expectedSonarSubworkflows = Map.of(
+                "infra/n8n/workflows/tools/sonarqube-mcp-search-issues.workflow.json", "search_sonar_issues_in_projects",
+                "infra/n8n/workflows/tools/sonarqube-mcp-quality-gate.workflow.json", "get_project_quality_gate_status",
+                "infra/n8n/workflows/tools/sonarqube-mcp-show-rule.workflow.json", "show_rule"
+        );
+
+        for (Map.Entry<String, String> entry : expectedSonarSubworkflows.entrySet()) {
+            Path subworkflowPath = repoRoot.resolve(entry.getKey());
+            assertThat(subworkflowPath).exists();
+
+            String rawContent = Files.readString(subworkflowPath);
+            assertThat(FORBIDDEN_SECRET_PATTERN.matcher(rawContent).find()).isFalse();
+            assertThat(FORBIDDEN_WRITE_TOOL_PATTERN.matcher(rawContent).find()).isFalse();
+            assertThat(rawContent).contains("UNAVAILABLE_OPTIONAL");
+
+            JsonNode root = objectMapper.readTree(rawContent);
+            assertThat(root.path("pinData").isObject()).isTrue();
+            assertThat(root.path("pinData").isEmpty()).isTrue();
+
+            JsonNode mcpClientNode = null;
+            JsonNode triggerNode = null;
+            for (JsonNode node : root.withArray("nodes")) {
+                String type = node.path("type").asText();
+                if ("@n8n/n8n-nodes-langchain.mcpClient".equals(type)) {
+                    mcpClientNode = node;
+                } else if ("n8n-nodes-base.executeWorkflowTrigger".equals(type)) {
+                    triggerNode = node;
+                }
+            }
+
+            assertThat(triggerNode).isNotNull();
+            assertThat(mcpClientNode).isNotNull();
+            assertThat(mcpClientNode.path("parameters").path("serverTransport").asText())
+                    .isEqualTo("httpStreamable");
+            assertThat(mcpClientNode.path("parameters").path("endpointUrl").asText())
+                    .isEqualTo("http://sonarqube-mcp:8080/mcp");
+            assertThat(mcpClientNode.path("parameters").path("authentication").asText())
+                    .isEqualTo("bearerAuth");
+            assertThat(mcpClientNode.path("parameters").path("tool").path("value").asText())
+                    .isEqualTo(entry.getValue());
+            assertThat(mcpClientNode.path("credentials").path("httpBearerAuth").path("id").asText())
+                    .isEqualTo("CREDENTIAL_ID_SONARQUBE_MCP_BEARER");
+        }
+
+        Path diagnosticPath = repoRoot.resolve("infra/n8n/workflows/main/reviewpilot-sonarqube-mcp-diagnostic.workflow.json");
+        assertThat(diagnosticPath).exists();
+        String diagnosticContent = Files.readString(diagnosticPath);
+        assertThat(FORBIDDEN_SECRET_PATTERN.matcher(diagnosticContent).find()).isFalse();
+        JsonNode diagnosticRoot = objectMapper.readTree(diagnosticContent);
+        assertThat(diagnosticRoot.path("name").asText()).isEqualTo("ReviewPilot - SonarQube MCP Diagnostic (Phase 7)");
         assertThat(diagnosticRoot.path("pinData").isEmpty()).isTrue();
     }
 

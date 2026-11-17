@@ -1,0 +1,225 @@
+{
+  "name": "ReviewPilot - SonarQube MCP Diagnostic (Phase 7)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ReviewPilot - SonarQube MCP Diagnostic (Fase 7)\n- **Objetivo:** validar a conectividade `HTTP Streamable` (`http://sonarqube-mcp:8080/mcp`) na rede interna `reviewpilot-net` (quando o profile `quality` estiver ativo) ou confirmar a degradação graciosa (`UNAVAILABLE_OPTIONAL`) quando o SonarQube estiver desligado.\n- **Credencial exigida:** `ReviewPilot SonarQube MCP Read-Only` (`Bearer Auth` com token de usuário SonarQube).\n- **Como testar:** defina `projectKey` no nó `Configure SonarQube Project Target` (ex.: `auto-elite`) e clique em **Test workflow**.",
+        "height": 220,
+        "width": 680
+      },
+      "id": "e7000000-0000-4000-8000-000000000001",
+      "name": "SonarQube MCP Diagnostic Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        180,
+        40
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e7000000-0000-4000-8000-000000000002",
+      "name": "When clicking 'Test workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-project-key",
+              "name": "projectKey",
+              "value": "auto-elite",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7000000-0000-4000-8000-000000000003",
+      "name": "Configure SonarQube Project Target",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        460,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "serverTransport": "httpStreamable",
+        "endpointUrl": "http://sonarqube-mcp:8080/mcp",
+        "authentication": "bearerAuth",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "get_project_quality_gate_status"
+        },
+        "inputMode": "json",
+        "jsonInput": "={\n  \"projectKey\": {{ JSON.stringify($json.projectKey) }}\n}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "e7000000-0000-4000-8000-000000000004",
+      "name": "Query Quality Gate via SonarQube MCP",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        760,
+        340
+      ],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "CREDENTIAL_ID_SONARQUBE_MCP_BEARER",
+          "name": "ReviewPilot SonarQube MCP Read-Only"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok-status",
+              "name": "status",
+              "value": "SONARQUBE_MCP_READONLY_SUCCEEDED",
+              "type": "string"
+            },
+            {
+              "id": "ok-transport",
+              "name": "transport",
+              "value": "httpStreamable",
+              "type": "string"
+            },
+            {
+              "id": "ok-tool",
+              "name": "toolExecuted",
+              "value": "get_project_quality_gate_status",
+              "type": "string"
+            },
+            {
+              "id": "ok-result",
+              "name": "mcpResult",
+              "value": "={{ $json }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7000000-0000-4000-8000-000000000005",
+      "name": "Format SonarQube MCP Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1080,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err-status",
+              "name": "status",
+              "value": "SONARQUBE_MCP_UNAVAILABLE_OR_FAILED",
+              "type": "string"
+            },
+            {
+              "id": "err-optional",
+              "name": "optionalDependency",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "err-msg",
+              "name": "sanitizedMessage",
+              "value": "SonarQube MCP indisponivel (profile quality desligado) ou falha de autenticacao/projectKey. O Review Agent tratara esta condicao como limitacao parcial em limitations[], sem interromper a revisao.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7000000-0000-4000-8000-000000000006",
+      "name": "Format Optional SonarQube Fallback",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1080,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "When clicking 'Test workflow'": {
+      "main": [
+        [
+          {
+            "node": "Configure SonarQube Project Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configure SonarQube Project Target": {
+      "main": [
+        [
+          {
+            "node": "Query Quality Gate via SonarQube MCP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Quality Gate via SonarQube MCP": {
+      "main": [
+        [
+          {
+            "node": "Format SonarQube MCP Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Optional SonarQube Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 45
+  },
+  "versionId": "00000000-0000-4000-8000-000000000704",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
+

@@ -1,0 +1,264 @@
+{
+  "name": "ReviewPilot Tool - SonarQube Show Rule",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## ReviewPilot Tool - SonarQube Show Rule (Fase 7)\n- **Finalidade:** subworkflow opcional somente leitura exposto ao `Review Agent` via `Call n8n Workflow Tool` (`sonarqube_show_rule_tool`).\n- **Servidor MCP:** `http://sonarqube-mcp:8080/mcp` na rede interna `reviewpilot-net` via `HTTP Streamable` (`httpStreamable`).\n- **Ferramenta MCP:** `show_rule` (consulta descrição detalhada e recomendação de uma regra SonarQube, ex.: `java:S2259`).\n- **Resiliência (SonarQube Opcional):** retorna `UNAVAILABLE_OPTIONAL` quando o SonarQube estiver desligado ou inacessível.",
+        "height": 220,
+        "width": 660
+      },
+      "id": "d7000003-0000-4000-8000-000000000001",
+      "name": "SonarQube Tool Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        180,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "ruleKey",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "d7000003-0000-4000-8000-000000000002",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-rule-key",
+              "leftValue": "={{ ($json.ruleKey || '').trim() }}",
+              "rightValue": "^[A-Za-z0-9_.:-]+:[A-Za-z0-9_.:-]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d7000003-0000-4000-8000-000000000003",
+      "name": "Validate Sonar Rule Key",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "serverTransport": "httpStreamable",
+        "endpointUrl": "http://sonarqube-mcp:8080/mcp",
+        "authentication": "bearerAuth",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "show_rule"
+        },
+        "inputMode": "json",
+        "jsonInput": "={\n  \"key\": {{ JSON.stringify($json.ruleKey) }}\n}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "d7000003-0000-4000-8000-000000000004",
+      "name": "SonarQube MCP - show_rule",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        740,
+        240
+      ],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "CREDENTIAL_ID_SONARQUBE_MCP_BEARER",
+          "name": "ReviewPilot SonarQube MCP Read-Only"
+        }
+      },
+      "notesInFlow": true,
+      "notes": "Queries SonarQube rule documentation via Streamable HTTP."
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "out-status",
+              "name": "status",
+              "value": "SUCCESS",
+              "type": "string"
+            },
+            {
+              "id": "out-server",
+              "name": "mcpServer",
+              "value": "sonarqube-mcp",
+              "type": "string"
+            },
+            {
+              "id": "out-tool",
+              "name": "toolName",
+              "value": "show_rule",
+              "type": "string"
+            },
+            {
+              "id": "out-rule",
+              "name": "ruleKey",
+              "value": "={{ $('When Executed by Another Workflow').item.json.ruleKey }}",
+              "type": "string"
+            },
+            {
+              "id": "out-data",
+              "name": "result",
+              "value": "={{ $json }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7000003-0000-4000-8000-000000000005",
+      "name": "Format SonarQube Tool Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "opt-status",
+              "name": "status",
+              "value": "UNAVAILABLE_OPTIONAL",
+              "type": "string"
+            },
+            {
+              "id": "opt-server",
+              "name": "mcpServer",
+              "value": "sonarqube-mcp",
+              "type": "string"
+            },
+            {
+              "id": "opt-tool",
+              "name": "toolName",
+              "value": "show_rule",
+              "type": "string"
+            },
+            {
+              "id": "opt-limitation",
+              "name": "limitation",
+              "value": "Regra SonarQube indisponivel ou profile quality desligado. Prosseguir revisao com GitHub MCP e Gemini e registrar em limitations[].",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d7000003-0000-4000-8000-000000000006",
+      "name": "Format Optional SonarQube Unavailable",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1040,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Validate Sonar Rule Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Sonar Rule Key": {
+      "main": [
+        [
+          {
+            "node": "SonarQube MCP - show_rule",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Optional SonarQube Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SonarQube MCP - show_rule": {
+      "main": [
+        [
+          {
+            "node": "Format SonarQube Tool Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Optional SonarQube Unavailable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "executionTimeout": 30
+  },
+  "versionId": "00000000-0000-4000-8000-000000000703",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
+
