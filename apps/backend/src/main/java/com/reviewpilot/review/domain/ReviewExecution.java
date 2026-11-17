@@ -146,6 +146,19 @@ public class ReviewExecution {
         this.completedAt = Objects.requireNonNull(now, "now is required");
     }
 
+    public void markCancelled(String reasonCode, String sanitizedMessage, Instant now) {
+        if (this.status.isTerminal()) {
+            return;
+        }
+        this.status = ReviewExecutionStatus.CANCELLED;
+        this.failureCode = Objects.requireNonNull(reasonCode, "reasonCode is required");
+        this.failureMessage = Objects.requireNonNull(sanitizedMessage, "sanitizedMessage is required");
+        if (this.startedAt == null) {
+            this.startedAt = now;
+        }
+        this.completedAt = Objects.requireNonNull(now, "now is required");
+    }
+
     public UUID getId() {
         return id;
     }

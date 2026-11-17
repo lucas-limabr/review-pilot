@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## ReviewPilot - Analyze Pull Request (Fase 7 — Review Agent + GitHub & SonarQube MCP)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **Agente (`Review Agent`):** nó `@n8n/n8n-nodes-langchain.agent` (*Tools Agent*, `maxIterations: 10`) sincronizado com `infra/n8n/prompts/review_agent.md` (`promptVersion: 1.0.0`).\n- **Modelo LLM (`Google Gemini Chat Model`):** conectado via `ai_languageModel` (`models/gemini-3.5-flash-lite`, `temperature: 0.1`, `maxOutputTokens: 4096`).\n- **Ferramentas MCP Read-Only (`ai_tool`):** 3 subworkflows GitHub MCP (`github_pr_read_tool`, `github_get_file_contents_tool`, `github_list_commits_tool`) + 3 subworkflows opcionais SonarQube MCP (`sonarqube_search_issues_tool`, `sonarqube_quality_gate_tool`, `sonarqube_show_rule_tool`). Nenhuma ferramenta de escrita está conectada.\n- **Normalização e Callback (`Validate and Normalize Result` / `Submit Review Result` / `Report Execution Failure`):** valida o contrato `contracts/review-result.schema.json` e envia o resultado ou falha controlada ao backend Spring Boot.",
+        "content": "## ReviewPilot - Analyze Pull Request (Fase 8 — Integração Ponta a Ponta)\n- **Webhook Trigger (`Receive Review Dispatch`):** autenticado via credencial Header Auth (`ReviewPilot Internal Service Auth`).\n- **Validação Determinística (`Validate Dispatch Payload`):** valida campos obrigatórios de `contracts/review-request.schema.json`.\n- **Agente (`Review Agent`):** nó `@n8n/n8n-nodes-langchain.agent` (*Tools Agent*, `maxIterations: 10`, `retryOnFail: false`) sincronizado com `infra/n8n/prompts/review_agent.md` (`promptVersion: 1.0.0`).\n- **Modelo LLM (`Google Gemini Chat Model`):** conectado via `ai_languageModel` (`models/gemini-3.5-flash-lite`, `temperature: 0.1`, `maxOutputTokens: 4096`, `retryOnFail: false`).\n- **Ferramentas MCP Read-Only (`ai_tool`):** 3 subworkflows GitHub MCP (`github_pr_read_tool`, `github_get_file_contents_tool`, `github_list_commits_tool`) + 3 subworkflows SonarQube MCP (`sonarqube_search_issues_tool`, `sonarqube_quality_gate_tool`, `sonarqube_show_rule_tool`). Nenhuma ferramenta de escrita está conectada.\n- **Normalização, Verificação de SHA e Callback (`Validate and Normalize Result` → `Verify Contract and Head SHA` → `Submit Review Result` / `Report Execution Failure`):** valida o contrato `contracts/review-result.schema.json`, detecta divergência de SHA e envia o resultado ou falha controlada ao backend Spring Boot.",
         "height": 280,
         "width": 760
       },
@@ -238,6 +238,7 @@
         1300,
         240
       ],
+      "retryOnFail": false,
       "onError": "continueErrorOutput",
       "notesInFlow": true,
       "notes": "Tools Agent executing inside n8n with Google Gemini Chat Model and read-only GitHub/SonarQube MCP tools."
@@ -258,6 +259,7 @@
         920,
         560
       ],
+      "retryOnFail": false,
       "credentials": {
         "googlePalmApi": {
           "id": "CREDENTIAL_ID_GOOGLE_GEMINI",
@@ -640,13 +642,13 @@
             {
               "id": "norm-sha",
               "name": "analyzedHeadSha",
-              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim()).analyzedHeadSha : $json.analyzedHeadSha) || $('Prepare Agent Context').item.json.expectedHeadSha }}",
+              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.slice($json.output.indexOf('{'), $json.output.lastIndexOf('}') + 1)).analyzedHeadSha : $json.analyzedHeadSha) || $('Prepare Agent Context').item.json.expectedHeadSha }}",
               "type": "string"
             },
             {
               "id": "norm-model",
               "name": "model",
-              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim()).model : $json.model) || 'models/gemini-3.5-flash-lite' }}",
+              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.slice($json.output.indexOf('{'), $json.output.lastIndexOf('}') + 1)).model : $json.model) || 'models/gemini-3.5-flash-lite' }}",
               "type": "string"
             },
             {
@@ -658,25 +660,25 @@
             {
               "id": "norm-summary",
               "name": "summary",
-              "value": "={{ typeof $json.output === 'string' ? JSON.parse($json.output.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim()).summary : $json.summary }}",
+              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.slice($json.output.indexOf('{'), $json.output.lastIndexOf('}') + 1)).summary : $json.summary) || '' }}",
               "type": "string"
             },
             {
               "id": "norm-findings",
               "name": "findings",
-              "value": "={{ typeof $json.output === 'string' ? JSON.parse($json.output.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim()).findings : ($json.findings || []) }}",
+              "value": "={{ ((typeof $json.output === 'string' ? JSON.parse($json.output.slice($json.output.indexOf('{'), $json.output.lastIndexOf('}') + 1)).findings : $json.findings) || []).map(f => ({ fingerprint: String(f.fingerprint || '').trim(), category: f.category, severity: f.severity, title: String(f.title || '').trim(), description: String(f.description || '').trim(), filePath: f.filePath ?? null, startLine: f.startLine ?? null, endLine: f.endLine ?? null, evidence: String(f.evidence || '').trim(), recommendation: String(f.recommendation || '').trim(), confidence: f.confidence ?? null, origin: f.origin || 'AI', externalReference: f.externalReference ?? null })) }}",
               "type": "array"
             },
             {
               "id": "norm-limitations",
               "name": "limitations",
-              "value": "={{ typeof $json.output === 'string' ? JSON.parse($json.output.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim()).limitations : ($json.limitations || []) }}",
+              "value": "={{ ((typeof $json.output === 'string' ? JSON.parse($json.output.slice($json.output.indexOf('{'), $json.output.lastIndexOf('}') + 1)).limitations : $json.limitations) || []).map(item => String(item).trim()).filter(Boolean) }}",
               "type": "array"
             },
             {
               "id": "norm-usage",
               "name": "usage",
-              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim()).usage : $json.usage) || {\"inputTokens\": null, \"outputTokens\": null} }}",
+              "value": "={{ (typeof $json.output === 'string' ? JSON.parse($json.output.slice($json.output.indexOf('{'), $json.output.lastIndexOf('}') + 1)).usage : $json.usage) || {\"inputTokens\": null, \"outputTokens\": null} }}",
               "type": "object"
             }
           ]
@@ -688,12 +690,104 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1660,
+        1620,
         240
       ],
       "onError": "continueErrorOutput",
       "notesInFlow": true,
-      "notes": "Parses Review Agent JSON output and enforces contracts/review-result.schema.json."
+      "notes": "Parses Review Agent JSON output and normalizes nullable fields according to contracts/review-result.schema.json."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-result-schema-version",
+              "leftValue": "={{ $json.schemaVersion }}",
+              "rightValue": "1.0",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-result-exec-id",
+              "leftValue": "={{ $json.reviewExecutionId }}",
+              "rightValue": "={{ $('Prepare Agent Context').item.json.reviewExecutionId }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-result-sha-format",
+              "leftValue": "={{ $json.analyzedHeadSha }}",
+              "rightValue": "^[0-9a-fA-F]{40}$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            },
+            {
+              "id": "cond-result-sha-match",
+              "leftValue": "={{ String($json.analyzedHeadSha || '').toLowerCase() }}",
+              "rightValue": "={{ String($('Prepare Agent Context').item.json.expectedHeadSha || '').toLowerCase() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-result-summary",
+              "leftValue": "={{ $json.summary }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-result-findings-array",
+              "leftValue": "={{ Array.isArray($json.findings) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-result-limitations-array",
+              "leftValue": "={{ Array.isArray($json.limitations) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b71d9d31-6e28-4f6a-9831-000000000019",
+      "name": "Verify Contract and Head SHA",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1860,
+        240
+      ],
+      "notesInFlow": true,
+      "notes": "Verifies contract structure and checks that analyzedHeadSha matches expectedHeadSha before calling Backend."
     },
     {
       "parameters": {
@@ -713,8 +807,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1960,
-        240
+        2140,
+        180
       ],
       "retryOnFail": true,
       "maxTries": 2,
@@ -738,19 +832,19 @@
             {
               "id": "fail-stage",
               "name": "stage",
-              "value": "AI_AGENT_EXECUTION",
+              "value": "={{ ($json.analyzedHeadSha && String($json.analyzedHeadSha).toLowerCase() !== String($('Prepare Agent Context').item.json.expectedHeadSha).toLowerCase()) ? 'SHA_VERIFICATION' : 'AI_AGENT_EXECUTION' }}",
               "type": "string"
             },
             {
               "id": "fail-code",
               "name": "errorCode",
-              "value": "MODEL_OR_WORKFLOW_FAILURE",
+              "value": "={{ ($json.analyzedHeadSha && String($json.analyzedHeadSha).toLowerCase() !== String($('Prepare Agent Context').item.json.expectedHeadSha).toLowerCase()) ? 'DIVERGENT_HEAD_SHA' : 'MODEL_OR_WORKFLOW_FAILURE' }}",
               "type": "string"
             },
             {
               "id": "fail-message",
               "name": "message",
-              "value": "Falha controlada durante a execucao do Review Agent ou validacao do contrato de saida no n8n.",
+              "value": "={{ ($json.analyzedHeadSha && String($json.analyzedHeadSha).toLowerCase() !== String($('Prepare Agent Context').item.json.expectedHeadSha).toLowerCase()) ? 'O SHA analisado no Pull Request diverge do expectedHeadSha solicitado para esta execucao.' : 'Falha controlada durante a execucao do Review Agent ou validacao do contrato de saida no n8n.' }}",
               "type": "string"
             },
             {
@@ -768,11 +862,11 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1660,
+        2140,
         420
       ],
       "notesInFlow": true,
-      "notes": "Builds sanitized failure payload without secrets or raw stack traces."
+      "notes": "Builds sanitized failure payload (distinguishing SHA divergence from agent/contract error) without secrets or raw stack traces."
     },
     {
       "parameters": {
@@ -792,7 +886,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1960,
+        2400,
         420
       ],
       "retryOnFail": true,
@@ -978,6 +1072,24 @@
       "main": [
         [
           {
+            "node": "Verify Contract and Head SHA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Contract and Head SHA": {
+      "main": [
+        [
+          {
             "node": "Submit Review Result",
             "type": "main",
             "index": 0
@@ -1023,9 +1135,10 @@
     "saveDataErrorExecution": "all",
     "saveDataSuccessExecution": "all",
     "saveManualExecutions": true,
-    "executionTimeout": 180
+    "executionTimeout": 180,
+    "errorWorkflow": "ReviewPilot - Global Error Handler"
   },
-  "versionId": "00000000-0000-4000-8000-000000000007",
+  "versionId": "00000000-0000-4000-8000-000000000008",
   "meta": {
     "templateCredsSetupCompleted": false
   },

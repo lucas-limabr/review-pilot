@@ -46,6 +46,9 @@ class N8nWorkflowExportSanitizationTest {
         JsonNode webhookNode = null;
         JsonNode geminiNode = null;
         JsonNode reviewAgentNode = null;
+        JsonNode verifyContractAndShaNode = null;
+        JsonNode submitResultNode = null;
+        JsonNode reportFailureNode = null;
         for (JsonNode node : root.withArray("nodes")) {
             String name = node.path("name").asText();
             nodeNames.add(name);
@@ -55,6 +58,12 @@ class N8nWorkflowExportSanitizationTest {
                 geminiNode = node;
             } else if ("Review Agent".equals(name)) {
                 reviewAgentNode = node;
+            } else if ("Verify Contract and Head SHA".equals(name)) {
+                verifyContractAndShaNode = node;
+            } else if ("Submit Review Result".equals(name)) {
+                submitResultNode = node;
+            } else if ("Report Execution Failure".equals(name)) {
+                reportFailureNode = node;
             }
         }
 
@@ -72,6 +81,7 @@ class N8nWorkflowExportSanitizationTest {
                 "sonarqube_quality_gate_tool",
                 "sonarqube_show_rule_tool",
                 "Validate and Normalize Result",
+                "Verify Contract and Head SHA",
                 "Submit Review Result",
                 "Build Failure Payload",
                 "Report Execution Failure",
@@ -89,16 +99,45 @@ class N8nWorkflowExportSanitizationTest {
         assertThat(geminiNode.path("parameters").path("modelName").asText()).isEqualTo("models/gemini-3.5-flash-lite");
         assertThat(geminiNode.path("parameters").path("options").path("temperature").asDouble()).isEqualTo(0.1);
         assertThat(geminiNode.path("parameters").path("options").path("maxOutputTokens").asInt()).isEqualTo(4096);
+        assertThat(geminiNode.path("retryOnFail").asBoolean(false)).isFalse();
         assertThat(geminiNode.path("credentials").path("googlePalmApi").path("id").asText())
                 .isEqualTo("CREDENTIAL_ID_GOOGLE_GEMINI");
 
         assertThat(reviewAgentNode).isNotNull();
         assertThat(reviewAgentNode.path("type").asText()).isEqualTo("@n8n/n8n-nodes-langchain.agent");
+        assertThat(reviewAgentNode.path("retryOnFail").asBoolean(false)).isFalse();
         assertThat(reviewAgentNode.path("parameters").path("options").path("maxIterations").asInt()).isEqualTo(10);
-        assertThat(reviewAgentNode.path("parameters").path("options").path("systemMessage").asText())
-                .isEqualTo(expectedSystemPrompt);
+        assertThat(reviewAgentNode.path("parameters").path("options").path("systemMessage").asText().strip())
+                .isEqualTo(expectedSystemPrompt.strip());
+
+        assertThat(verifyContractAndShaNode).isNotNull();
+        assertThat(verifyContractAndShaNode.path("type").asText()).isEqualTo("n8n-nodes-base.if");
+
+        assertThat(submitResultNode).isNotNull();
+        assertThat(submitResultNode.path("retryOnFail").asBoolean()).isTrue();
+        assertThat(submitResultNode.path("maxTries").asInt()).isEqualTo(2);
+        assertThat(submitResultNode.path("parameters").path("options").path("timeout").asInt()).isEqualTo(15000);
+        assertThat(submitResultNode.path("credentials").path("httpHeaderAuth").path("id").asText())
+                .isEqualTo("CREDENTIAL_ID_INTERNAL_SERVICE_AUTH");
+
+        assertThat(reportFailureNode).isNotNull();
+        assertThat(reportFailureNode.path("retryOnFail").asBoolean()).isTrue();
+        assertThat(reportFailureNode.path("maxTries").asInt()).isEqualTo(2);
+        assertThat(reportFailureNode.path("parameters").path("options").path("timeout").asInt()).isEqualTo(10000);
+        assertThat(reportFailureNode.path("credentials").path("httpHeaderAuth").path("id").asText())
+                .isEqualTo("CREDENTIAL_ID_INTERNAL_SERVICE_AUTH");
+
+        assertThat(root.path("settings").path("executionTimeout").asInt()).isEqualTo(180);
+        assertThat(root.path("settings").path("errorWorkflow").asText())
+                .isEqualTo("ReviewPilot - Global Error Handler");
 
         JsonNode connections = root.path("connections");
+        assertThat(connections.path("Validate and Normalize Result").path("main").path(0).path(0).path("node").asText())
+                .isEqualTo("Verify Contract and Head SHA");
+        assertThat(connections.path("Verify Contract and Head SHA").path("main").path(0).path(0).path("node").asText())
+                .isEqualTo("Submit Review Result");
+        assertThat(connections.path("Verify Contract and Head SHA").path("main").path(1).path(0).path("node").asText())
+                .isEqualTo("Build Failure Payload");
         assertThat(connections.path("Google Gemini Chat Model").path("ai_languageModel").path(0).path(0).path("node").asText())
                 .isEqualTo("Review Agent");
 

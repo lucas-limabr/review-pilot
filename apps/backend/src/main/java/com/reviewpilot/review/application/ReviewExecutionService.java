@@ -206,6 +206,14 @@ public class ReviewExecutionService {
             );
         }
 
+        if (!pullRequest.getHeadSha().equalsIgnoreCase(execution.getHeadSha())) {
+            throw new ResourceConflictException(
+                    "Review execution '" + pathExecutionId + "' for SHA '" + execution.getHeadSha()
+                            + "' is obsolete because Pull Request #" + pullRequest.getNumber()
+                            + " is now at head SHA '" + pullRequest.getHeadSha() + "'."
+            );
+        }
+
         Instant now = Instant.now();
         Set<String> seenFingerprints = new HashSet<>();
         List<Finding> findingsToPersist = new ArrayList<>();
@@ -284,6 +292,11 @@ public class ReviewExecutionService {
             throw new ResourceConflictException(
                     "Cannot mark execution '" + executionId + "' as FAILED because it is already " + execution.getStatus() + "."
             );
+        }
+
+        if (execution.getStatus() == ReviewExecutionStatus.CANCELLED
+                || execution.getStatus() == ReviewExecutionStatus.FAILED) {
+            return getReviewDetails(executionId);
         }
 
         String sanitizedMessage = redactSecrets(

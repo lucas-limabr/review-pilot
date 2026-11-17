@@ -1,4 +1,4 @@
-# Infraestrutura n8n — Acesso, Segurança, Gemini, MCP e Review Agent (Fases 4 a 7)
+# Infraestrutura n8n — Acesso, Segurança, Gemini, MCP e Integração Ponta a Ponta (Fases 4 a 8)
 
 Este diretório contém os workflows exportados, o prompt versionado (`prompts/review_agent.md`) e as instruções operacionais da instância self-hosted do **n8n Community Edition** (`docker.n8n.io/n8nio/n8n:2.47.4`), que atua como orquestrador e runtime exclusivo do `Review Agent`.
 
@@ -41,14 +41,19 @@ Este diretório contém os workflows exportados, o prompt versionado (`prompts/r
 
 ---
 
-## 4. Construção do `Review Agent` e Versionamento de Prompt (Fase 7)
+## 4. Construção do `Review Agent`, Verificação de SHA e Integração Ponta a Ponta (Fases 7 e 8)
 
 - **Arquivo-fonte do System Prompt:** [`prompts/review_agent.md`](prompts/review_agent.md) (`promptVersion: 1.0.0`).
-- **Sincronização garantida por teste automatizado:** o teste `N8nWorkflowExportSanitizationTest` verifica que o parâmetro `options.systemMessage` do nó `Review Agent` em [`workflows/main/reviewpilot-analyze-pr.workflow.json`](workflows/main/reviewpilot-analyze-pr.workflow.json) é idêntico byte a byte ao conteúdo de [`prompts/review_agent.md`](prompts/review_agent.md).
-- **Configuração do nó `Review Agent`:**
+- **Sincronização garantida por teste automatizado:** o teste `N8nWorkflowExportSanitizationTest` verifica que o parâmetro `options.systemMessage` do nó `Review Agent` em [`workflows/main/reviewpilot-analyze-pr.workflow.json`](workflows/main/reviewpilot-analyze-pr.workflow.json) é idêntico ao conteúdo de [`prompts/review_agent.md`](prompts/review_agent.md).
+- **Configuração do nó `Review Agent` e controle de custo:**
   - Tipo: `@n8n/n8n-nodes-langchain.agent` (`typeVersion: 1.7`, *Tools Agent*)
   - `maxIterations`: `10`
+  - `retryOnFail`: `false` (tanto no `Review Agent` quanto no `Google Gemini Chat Model`, evitando retries automáticos que duplicariam consumo de tokens).
   - `onError`: `continueErrorOutput` (encaminha falhas para `Build Failure Payload` → `Report Execution Failure`).
+- **Validação de Contrato e Divergência de SHA (`Validate and Normalize Result` → `Verify Contract and Head SHA`):**
+  - `Validate and Normalize Result` extrai o JSON produzido pelo agente e normaliza campos opcionais anuláveis (`filePath`, `startLine`, `endLine`, `confidence`, `externalReference`).
+  - `Verify Contract and Head SHA` (`n8n-nodes-base.if`) verifica deterministicamente que `schemaVersion == "1.0"`, `reviewExecutionId` corresponde ao contexto, `analyzedHeadSha` corresponde ao `expectedHeadSha` solicitado pelo backend, `summary` não está vazio e `findings`/`limitations` são arrays.
+  - Em caso de divergência de SHA (`analyzedHeadSha != expectedHeadSha`), `Build Failure Payload` registra `stage: "SHA_VERIFICATION"` e `errorCode: "DIVERGENT_HEAD_SHA"`.
 - **Topologia completa do workflow principal (`ReviewPilot - Analyze Pull Request`):**
 
 ```text
@@ -63,14 +68,16 @@ Este diretório contém os workflows exportados, o prompt versionado (`prompts/r
                [Prepare Agent Context] (Extrai owner, repo, PR, SHA, sonarProjectKey, schemaVersion=1.0, promptVersion=1.0.0)
                          │
                          ▼
-                   [Review Agent] (@n8n/n8n-nodes-langchain.agent, maxIterations=10)
+                   [Review Agent] (@n8n/n8n-nodes-langchain.agent, maxIterations=10, retryOnFail=false)
                      ▲   ▲   ▲
                      │   │   └── ai_tool: sonarqube_search_issues_tool, sonarqube_quality_gate_tool, sonarqube_show_rule_tool
                      │   └────── ai_tool: github_pr_read_tool, github_get_file_contents_tool, github_list_commits_tool
                      └────────── ai_languageModel: [Google Gemini Chat Model] (models/gemini-3.5-flash-lite, temp=0.1, maxTokens=4096)
                      │
-       ├── Success ──► [Validate and Normalize Result] ──► [Submit Review Result] (POST /api/internal/v1/reviews/{id}/results)
-       └── Error   ──► [Build Failure Payload]         ──► [Report Execution Failure] (POST /api/internal/v1/reviews/{id}/failure)
+       ├── Success ──► [Validate and Normalize Result] ──► [Verify Contract and Head SHA]
+       │                                                         ├── True  ──► [Submit Review Result] (POST /api/internal/v1/reviews/{id}/results)
+       │                                                         └── False ──► [Build Failure Payload] ──► [Report Execution Failure]
+       └── Error   ──────────────────────────────────────────────────────────► [Build Failure Payload] ──► [Report Execution Failure] (POST /api/internal/v1/reviews/{id}/failure)
 ```
 
 ---

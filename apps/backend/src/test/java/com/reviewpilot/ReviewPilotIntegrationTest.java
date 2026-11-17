@@ -306,6 +306,15 @@ class ReviewPilotIntegrationTest {
                 String responseBody = result.getResponse().getContentAsString();
                 assertThat(responseBody).doesNotContain("ghp_1234567890abcdefghijklmnopqrstuv");
                 assertThat(responseBody).contains("[REDACTED]");
+
+                // Duplicate failure callback from n8n retry must be handled idempotently (200 OK)
+                mockMvc.perform(post("/api/internal/v1/reviews/" + execution.getId() + "/failure")
+                                .header("X-Internal-Service-Token", TEST_INTERNAL_TOKEN)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(failurePayload))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.status").value("FAILED"))
+                                .andExpect(jsonPath("$.failureCode").value("MCP_UPSTREAM_ERROR"));
         }
 
         private UUID registerTestRepository(String owner, String name, long externalId) throws Exception {

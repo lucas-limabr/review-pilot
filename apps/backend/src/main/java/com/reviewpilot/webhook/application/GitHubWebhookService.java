@@ -21,6 +21,7 @@ import com.reviewpilot.webhook.infrastructure.JpaWebhookDeliveryRepository;
 import com.reviewpilot.webhook.presentation.WebhookDtos.GitHubWebhookResponse;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -305,6 +306,8 @@ public class GitHubWebhookService {
                 );
             }
 
+            cancelObsoleteActiveExecutions(repository.getId(), pullRequest.getId(), prNumber, headSha, now);
+
             ReviewDispatchPayload payload = new ReviewDispatchPayload(
                     delivery.getId(),
                     existingExecution.getId(),
@@ -322,6 +325,8 @@ public class GitHubWebhookService {
             );
         }
 
+        cancelObsoleteActiveExecutions(repository.getId(), pullRequest.getId(), prNumber, headSha, now);
+
         ReviewExecution newExecution = reviewExecutionRepository.save(
                 ReviewExecution.createPending(repository.getId(), pullRequest.getId(), headSha, now)
         );
@@ -336,6 +341,31 @@ public class GitHubWebhookService {
                 repository.getSonarProjectKey()
         );
         return new PreparedReviewDispatch(true, newExecution.getId(), newExecution.getStatus(), payload);
+    }
+
+    private void cancelObsoleteActiveExecutions(
+            UUID repositoryId,
+            UUID pullRequestId,
+            int prNumber,
+            String newHeadSha,
+            Instant now
+    ) {
+        List<ReviewExecution> activeExecutions = reviewExecutionRepository
+                .findByRepositoryIdAndPullRequestIdAndStatusIn(
+                        repositoryId,
+                        pullRequestId,
+                        List.of(ReviewExecutionStatus.PENDING, ReviewExecutionStatus.RUNNING)
+                );
+        for (ReviewExecution activeExecution : activeExecutions) {
+            if (!activeExecution.getHeadSha().equalsIgnoreCase(newHeadSha)) {
+                activeExecution.markCancelled(
+                        "SUPERSEDED_BY_NEWER_SHA",
+                        "Superseded by newer commit SHA " + newHeadSha + " on Pull Request #" + prNumber + ".",
+                        now
+                );
+                reviewExecutionRepository.save(activeExecution);
+            }
+        }
     }
 
     private GitHubWebhookResponse executeDispatchAndRecordState(

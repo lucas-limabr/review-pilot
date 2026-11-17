@@ -237,6 +237,137 @@ class GitHubWebhookIntegrationTest {
                 verify(dispatchGateway, times(1)).dispatchReviewRequest(any());
         }
 
+        @Test
+        void shouldSupersedeObsoleteExecutionWhenNewerShaArrivesAndCompleteEndToEndFlow() throws Exception {
+                saveAllowlistedRepo("acme", "auto-elite", "auto-elite");
+                doNothing().when(dispatchGateway).dispatchReviewRequest(any());
+
+                String sha1 = "1111111111111111111111111111111111111111";
+                String sha2 = "2222222222222222222222222222222222222222";
+
+                // 1. PR #30 opened at sha1 -> creates execution E1 in RUNNING state
+                byte[] payloadSha1 = samplePullRequestPayload("opened", "acme/auto-elite", 30, sha1);
+                mockMvc.perform(post("/api/v1/webhooks/github")
+                                .header("X-GitHub-Delivery", "deliv-pr30-sha1")
+                                .header("X-GitHub-Event", "pull_request")
+                                .header("X-Hub-Signature-256", signatureVerifier.computeExpectedSignature(payloadSha1))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(payloadSha1))
+                                .andExpect(status().isAccepted())
+                                .andExpect(jsonPath("$.reviewExecutionStatus").value("RUNNING"));
+
+                ReviewExecution execSha1 = reviewExecutionRepository.findAll().stream()
+                                .filter(e -> e.getHeadSha().equals(sha1))
+                                .findFirst()
+                                .orElseThrow();
+                assertThat(execSha1.getStatus()).isEqualTo(ReviewExecutionStatus.RUNNING);
+
+                // 2. PR #30 receives new commit sha2 while E1 is still running -> E1 is superseded (CANCELLED), E2 is RUNNING
+                byte[] payloadSha2 = samplePullRequestPayload("synchronize", "acme/auto-elite", 30, sha2);
+                mockMvc.perform(post("/api/v1/webhooks/github")
+                                .header("X-GitHub-Delivery", "deliv-pr30-sha2")
+                                .header("X-GitHub-Event", "pull_request")
+                                .header("X-Hub-Signature-256", signatureVerifier.computeExpectedSignature(payloadSha2))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(payloadSha2))
+                                .andExpect(status().isAccepted())
+                                .andExpect(jsonPath("$.reviewExecutionStatus").value("RUNNING"));
+
+                ReviewExecution updatedExecSha1 = reviewExecutionRepository.findById(execSha1.getId()).orElseThrow();
+                assertThat(updatedExecSha1.getStatus()).isEqualTo(ReviewExecutionStatus.CANCELLED);
+                assertThat(updatedExecSha1.getFailureCode()).isEqualTo("SUPERSEDED_BY_NEWER_SHA");
+
+                ReviewExecution execSha2 = reviewExecutionRepository.findAll().stream()
+                                .filter(e -> e.getHeadSha().equals(sha2))
+                                .findFirst()
+                                .orElseThrow();
+                assertThat(execSha2.getStatus()).isEqualTo(ReviewExecutionStatus.RUNNING);
+
+                // 3. Delayed result callback from obsolete E1 must be rejected with 409 Conflict
+                String obsoleteResultPayload = """
+                                {
+                                  "schemaVersion": "1.0",
+                                  "reviewExecutionId": "%s",
+                                  "repositoryFullName": "acme/auto-elite",
+                                  "pullRequestNumber": 30,
+                                  "analyzedHeadSha": "%s",
+                                  "model": "models/gemini-3.5-flash-lite",
+                                  "promptVersion": "1.0.0",
+                                  "summary": "Resultado atrasado de SHA obsoleto.",
+                                  "findings": [],
+                                  "limitations": [],
+                                  "usage": { "inputTokens": 500, "outputTokens": 120 }
+                                }
+                                """.formatted(execSha1.getId(), sha1);
+
+                mockMvc.perform(post("/api/internal/v1/reviews/" + execSha1.getId() + "/results")
+                                .header("X-Internal-Service-Token", TEST_INTERNAL_TOKEN)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(obsoleteResultPayload))
+                                .andExpect(status().isConflict());
+
+                // 4. Subsequent failure callback from E1's error branch is handled idempotently preserving CANCELLED status
+                String fallbackFailurePayload = """
+                                {
+                                  "stage": "AI_AGENT_EXECUTION",
+                                  "errorCode": "MODEL_OR_WORKFLOW_FAILURE",
+                                  "message": "Callback de resultado rejeitado por execucao obsoleta.",
+                                  "retryable": false
+                                }
+                                """;
+
+                mockMvc.perform(post("/api/internal/v1/reviews/" + execSha1.getId() + "/failure")
+                                .header("X-Internal-Service-Token", TEST_INTERNAL_TOKEN)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(fallbackFailurePayload))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                                .andExpect(jsonPath("$.failureCode").value("SUPERSEDED_BY_NEWER_SHA"));
+
+                // 5. Active execution E2 completes with correlated GitHub + SonarQube findings (profile quality active)
+                String validSha2ResultPayload = """
+                                {
+                                  "schemaVersion": "1.0",
+                                  "reviewExecutionId": "%s",
+                                  "repositoryFullName": "acme/auto-elite",
+                                  "pullRequestNumber": 30,
+                                  "analyzedHeadSha": "%s",
+                                  "model": "models/gemini-3.5-flash-lite",
+                                  "promptVersion": "1.0.0",
+                                  "summary": "Revisao concluida com contexto GitHub MCP e SonarQube MCP ativo.",
+                                  "findings": [
+                                    {
+                                      "fingerprint": "BUG-src/service/OrderPricing.java-54-div-zero",
+                                      "category": "BUG",
+                                      "severity": "HIGH",
+                                      "title": "Divisao por zero quando lista de itens esta vazia",
+                                      "description": "O calculo de desconto divide pelo total de itens sem validar lista vazia.",
+                                      "filePath": "src/service/OrderPricing.java",
+                                      "startLine": 54,
+                                      "endLine": 57,
+                                      "evidence": "return totalDiscount / items.size();",
+                                      "recommendation": "Retornar BigDecimal.ZERO quando items.isEmpty() antes de dividir.",
+                                      "confidence": 0.950,
+                                      "origin": "CORRELATED",
+                                      "externalReference": "java:S3518"
+                                    }
+                                  ],
+                                  "limitations": [],
+                                  "usage": { "inputTokens": 1850, "outputTokens": 410 }
+                                }
+                                """.formatted(execSha2.getId(), sha2);
+
+                mockMvc.perform(post("/api/internal/v1/reviews/" + execSha2.getId() + "/results")
+                                .header("X-Internal-Service-Token", TEST_INTERNAL_TOKEN)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(validSha2ResultPayload))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                                .andExpect(jsonPath("$.findings.length()").value(1))
+                                .andExpect(jsonPath("$.findings[0].origin").value("CORRELATED"))
+                                .andExpect(jsonPath("$.findings[0].externalReference").value("java:S3518"));
+        }
+
         private void saveAllowlistedRepo(String owner, String name, String sonarProjectKey) {
                 repositoryRepository.save(TrackedRepository.createGitHubRepository(
                                 9001L,
