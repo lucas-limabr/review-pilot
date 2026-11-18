@@ -64,4 +64,5 @@ n8n-local/
 .DS_Store
 Thumbs.db
 
-docs/
+progress/
+fixtures/
